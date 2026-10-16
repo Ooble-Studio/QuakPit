@@ -26,16 +26,37 @@ function authHeader(c: Creds): string {
 
 async function dav(url: string, method: string, body: string, depth = '0'): Promise<string> {
   if (!creds) throw new Error('iCloud not connected')
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: authHeader(creds),
-      'Content-Type': 'application/xml; charset=utf-8',
-      Depth: depth
-    },
-    body,
-    redirect: 'follow'
-  })
+  // `fetch` removes Authorization when a redirect changes host. iCloud can
+  // route CalDAV requests to a regional host, so follow redirects ourselves
+  // and send the same Basic auth header to the redirected iCloud endpoint.
+  let requestUrl = url
+  let res: Response | null = null
+  for (let redirects = 0; redirects < 5; redirects++) {
+    res = await fetch(requestUrl, {
+      method,
+      headers: {
+        Authorization: authHeader(creds),
+        Accept: 'application/xml, text/xml, */*',
+        'Content-Type': 'application/xml; charset=utf-8',
+        Depth: depth
+      },
+      body,
+      cache: 'no-store',
+      redirect: 'manual'
+    })
+    if (![301, 302, 303, 307, 308].includes(res.status)) break
+    const location = res.headers.get('location')
+    if (!location) throw new Error('iCloud CalDAV redirected without a location.')
+    const next = new URL(location, requestUrl)
+    if (next.protocol !== 'https:' || !/(^|\.)icloud\.com$/i.test(next.hostname)) {
+      throw new Error('iCloud CalDAV redirected to an untrusted host.')
+    }
+    requestUrl = next.toString()
+  }
+  if (!res) throw new Error('Could not reach iCloud CalDAV.')
+  if ([301, 302, 303, 307, 308].includes(res.status)) {
+    throw new Error('iCloud CalDAV redirected too many times.')
+  }
   if (res.status === 401) throw new Error('Wrong Apple ID or app-specific password.')
   if (res.status !== 207 && !res.ok) throw new Error(`iCloud CalDAV error (${res.status})`)
   return res.text()
@@ -102,7 +123,8 @@ async function discover(): Promise<Cal[]> {
 const toCalDav = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 
 function decodeEntities(s: string): string {
-  return s
+  const text = s.trim().replace(/^<!\[CDATA\[([\s\S]*)\]\]>$/i, '$1')
+  return text
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
@@ -111,7 +133,7 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&')
 }
 
-function parseIcs(ics: string, out: UpcomingEvent[]): void {
+function parseIcs(ics: string, out: UpcomingEvent[]): boolean {
   try {
     const comp = new ICAL.Component(ICAL.parse(ics))
     for (const ve of comp.getAllSubcomponents('vevent')) {
@@ -124,9 +146,19 @@ function parseIcs(ics: string, out: UpcomingEvent[]): void {
         start
       })
     }
+    return true
   } catch {
-    /* ignore malformed ICS */
+    return false
   }
+}
+
+/** Extract both XML-escaped and CDATA calendar-data response bodies. */
+function calendarData(xml: string): string[] {
+  const values: string[] = []
+  const re = /<[^>]*calendar-data\b[^>]*>([\s\S]*?)<\/[^>]*calendar-data>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml))) values.push(decodeEntities(m[1]))
+  return values
 }
 
 // --- public API ------------------------------------------------------------
@@ -154,7 +186,11 @@ export async function connect(username: string, password: string): Promise<void>
     throw new Error('Enter your Apple ID and an app-specific password.')
   }
   try {
-    await discover() // validates the credentials (401 if wrong)
+    const discovered = await discover() // validates the credentials (401 if wrong)
+    if (!discovered.length) throw new Error('No event calendars found in this iCloud account.')
+    // Discovery alone only proves authentication. Read once now so a broken
+    // CalDAV REPORT is shown while the user is still in the connect flow.
+    await listUpcoming(120)
   } catch (e) {
     creds = null
     throw e
@@ -169,13 +205,11 @@ export function disconnect(): void {
 }
 
 /** Events starting within the next `minutes`. In memory only, never persisted. */
-export async function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
+export async function listBetween(start: Date, end: Date): Promise<UpcomingEvent[]> {
   loadCreds()
   if (!creds) return []
   const cals = await discover()
-  const now = new Date()
-  const end = new Date(now.getTime() + minutes * 60_000)
-  const startStr = toCalDav(now)
+  const startStr = toCalDav(start)
   const endStr = toCalDav(end)
 
   const body = `<?xml version="1.0"?><C:calendar-query xmlns:A="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><A:prop><C:calendar-data><C:expand start="${startStr}" end="${endStr}"/></C:calendar-data></A:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="${startStr}" end="${endStr}"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`
@@ -183,18 +217,20 @@ export async function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
   const events: UpcomingEvent[] = []
   await Promise.all(
     cals.map(async (cal) => {
-      try {
-        const xml = await dav(cal.url, 'REPORT', body, '1')
-        const re = /<[^>]*calendar-data[^>]*>([\s\S]*?)<\/[^>]*calendar-data>/gi
-        let m: RegExpExecArray | null
-        while ((m = re.exec(xml))) parseIcs(decodeEntities(m[1]), events)
-      } catch {
-        /* skip this calendar */
+      const xml = await dav(cal.url, 'REPORT', body, '1')
+      const payloads = calendarData(xml)
+      if (!payloads.every((ics) => parseIcs(ics, events))) {
+        throw new Error(`iCloud returned unreadable event data for ${cal.name}.`)
       }
     })
   )
 
-  const nowMs = Date.now()
+  const startMs = start.getTime()
   const endMs = end.getTime()
-  return events.filter((e) => e.start > nowMs && e.start <= endMs).sort((a, b) => a.start - b.start)
+  return events.filter((e) => e.start >= startMs && e.start < endMs).sort((a, b) => a.start - b.start)
+}
+
+export function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
+  const now = new Date()
+  return listBetween(now, new Date(now.getTime() + minutes * 60_000))
 }

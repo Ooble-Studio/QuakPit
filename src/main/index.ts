@@ -3,7 +3,7 @@ import { createOverlayWindow, flyAcross } from './windows/overlay'
 import { openSettings } from './windows/settings'
 import { createTray } from './tray'
 import { registerIpc } from './ipc'
-import { getPrefs } from './store'
+import { getPrefs, setPrefs } from './store'
 import { startScheduler } from './scheduler'
 import { initAutoUpdate } from './updater'
 import * as calendar from './calendar'
@@ -32,6 +32,10 @@ function sendTestFlight(): void {
   })
 }
 
+function togglePresentationMode(): void {
+  setPrefs({ presentationMode: !getPrefs().presentationMode })
+}
+
 app.whenReady().then(async () => {
   // Quakpit is a regular app: it shows in the Dock and Cmd+Tab. (It also keeps
   // a menu-bar icon for quick access, and stays running in the background.)
@@ -50,8 +54,9 @@ app.whenReady().then(async () => {
   }
 
   createOverlayWindow()
-  createTray(sendTestFlight, openSettings)
+  createTray(sendTestFlight, openSettings, togglePresentationMode)
   globalShortcut.register('CommandOrControl+Shift+D', sendTestFlight)
+  globalShortcut.register('CommandOrControl+Shift+P', togglePresentationMode)
 
   // Show the control window when the app opens.
   openSettings()

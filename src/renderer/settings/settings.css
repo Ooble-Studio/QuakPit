@@ -352,6 +352,12 @@ a {
   display: flex;
   gap: 8px;
 }
+
+.reminder-list { display: flex; flex-wrap: wrap; gap: 8px; min-height: 30px; }
+.reminder-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--postit); font-family: var(--font-note); font-size: 16px; }
+.reminder-chip button { appearance: none; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 20px; line-height: 16px; cursor: pointer; padding: 0; }
+.reminder-add { display: flex; gap: 8px; margin-top: 8px; }
+.reminder-add .input { width: 120px; }
 .tag-btn {
   font-family: var(--font-note);
   font-size: 14px;

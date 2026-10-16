@@ -5,6 +5,7 @@ import { join } from 'node:path'
 /** Non-personal preferences only — no calendar data ever lives here. */
 export type Prefs = {
   leadMinutes: number
+  reminderMinutes: number[]
   messageTemplate: string
   soundEnabled: boolean
   staySignedIn: boolean
@@ -16,6 +17,8 @@ export type Prefs = {
   // --- Pro ---
   speed: 'normal' | 'fast' | 'ultra' // how fast the rig crosses the screen
   flyAtStart: boolean // a second fly-by at the meeting's start time (free)
+  presentationMode: boolean // pause automatic flights while presenting
+  showTodaySchedule: boolean // preview the full local calendar day instead of next two hours
   soundPack: string // which signature sound plays mid-flight
   flierHead: string // character head id
   flierColor: string // plane colour id
@@ -24,6 +27,7 @@ export type Prefs = {
 
 const DEFAULT_PREFS: Prefs = {
   leadMinutes: 5,
+  reminderMinutes: [5],
   messageTemplate: '{title} in {minutes} minutes',
   soundEnabled: true,
   staySignedIn: true,
@@ -34,6 +38,8 @@ const DEFAULT_PREFS: Prefs = {
   font: 'system',
   speed: 'normal',
   flyAtStart: false,
+  presentationMode: false,
+  showTodaySchedule: false,
   soundPack: 'quack',
   flierHead: 'duck',
   flierColor: 'red',

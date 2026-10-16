@@ -15,6 +15,7 @@ declare global {
 
   type Prefs = {
     leadMinutes: number
+    reminderMinutes: number[]
     messageTemplate: string
     soundEnabled: boolean
     staySignedIn: boolean
@@ -25,6 +26,8 @@ declare global {
     font: string
     speed: 'normal' | 'fast' | 'ultra'
     flyAtStart: boolean
+    presentationMode: boolean
+    showTodaySchedule: boolean
     soundPack: string
     flierHead: string
     flierColor: string

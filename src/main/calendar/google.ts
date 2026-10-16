@@ -149,14 +149,13 @@ export function persistIfPossible(): void {
  * Returns events starting within the next `withinMinutes`. Held in memory only,
  * never written to disk.
  */
-export async function listUpcoming(withinMinutes = 60): Promise<UpcomingEvent[]> {
+export async function listBetween(start: Date, end: Date): Promise<UpcomingEvent[]> {
   if (!refreshToken && !accessToken) return []
   const token = await getAccessToken()
 
-  const now = new Date()
   const url = new URL(EVENTS_URL)
-  url.searchParams.set('timeMin', now.toISOString())
-  url.searchParams.set('timeMax', new Date(now.getTime() + withinMinutes * 60_000).toISOString())
+  url.searchParams.set('timeMin', start.toISOString())
+  url.searchParams.set('timeMax', end.toISOString())
   url.searchParams.set('singleEvents', 'true')
   url.searchParams.set('orderBy', 'startTime')
   url.searchParams.set('maxResults', '15')
@@ -185,6 +184,11 @@ export async function listUpcoming(withinMinutes = 60): Promise<UpcomingEvent[]>
     })
   }
   return events
+}
+
+export function listUpcoming(withinMinutes = 60): Promise<UpcomingEvent[]> {
+  const now = new Date()
+  return listBetween(now, new Date(now.getTime() + withinMinutes * 60_000))
 }
 
 // --- internals ---------------------------------------------------------------

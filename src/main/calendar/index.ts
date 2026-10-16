@@ -35,13 +35,27 @@ export const icalRemove = (id: string): ical.Feed[] => ical.removeFeed(id)
 
 /** Merged, de-duplicated, sorted events from every connected provider. */
 export async function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
+  const now = new Date()
+  return listBetween(now, new Date(now.getTime() + minutes * 60_000))
+}
+
+/** Local calendar day, from 00:00 through the next midnight. */
+export function listToday(): Promise<UpcomingEvent[]> {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+  return listBetween(start, end)
+}
+
+export async function listBetween(start: Date, end: Date): Promise<UpcomingEvent[]> {
   const [g, i, c] = await Promise.all([
     google
-      .listUpcoming(minutes)
+      .listBetween(start, end)
       .then((es) => es.map((e) => ({ ...e, id: `google:${e.id}` })))
       .catch(() => [] as UpcomingEvent[]),
-    icloud.listUpcoming(minutes).catch(() => [] as UpcomingEvent[]),
-    ical.listUpcoming(minutes).catch(() => [] as UpcomingEvent[])
+    icloud.listBetween(start, end).catch(() => [] as UpcomingEvent[]),
+    ical.listBetween(start, end).catch(() => [] as UpcomingEvent[])
   ])
 
   const seen = new Set<string>()

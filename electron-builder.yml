@@ -11,6 +11,12 @@ files:
   - package.json
   - "!**/*.{ts,map}"
 
+extraResources:
+  - from: build/iconTemplate.png
+    to: tray-iconTemplate.png
+  - from: build/iconTemplate@2x.png
+    to: tray-iconTemplate@2x.png
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.png

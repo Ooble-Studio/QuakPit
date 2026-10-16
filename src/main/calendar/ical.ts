@@ -108,11 +108,11 @@ export function removeFeed(id: string): Feed[] {
 }
 
 /** Events starting within the next `minutes`, across all feeds. In memory only. */
-export async function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
+export async function listBetween(start: Date, end: Date): Promise<UpcomingEvent[]> {
   const list = load()
   if (!list.length) return []
-  const nowMs = Date.now()
-  const endMs = nowMs + minutes * 60_000
+  const nowMs = start.getTime()
+  const endMs = end.getTime()
   const out: UpcomingEvent[] = []
   await Promise.all(
     list.map(async (feed) => {
@@ -123,5 +123,10 @@ export async function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
       }
     })
   )
-  return out.filter((e) => e.start > nowMs && e.start <= endMs).sort((a, b) => a.start - b.start)
+  return out.filter((e) => e.start >= nowMs && e.start < endMs).sort((a, b) => a.start - b.start)
+}
+
+export function listUpcoming(minutes = 60): Promise<UpcomingEvent[]> {
+  const now = new Date()
+  return listBetween(now, new Date(now.getTime() + minutes * 60_000))
 }

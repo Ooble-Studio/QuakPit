@@ -39,6 +39,8 @@ const sound = $<HTMLInputElement>('sound')
 const login = $<HTMLInputElement>('login')
 const stay = $<HTMLInputElement>('stay')
 const flyAtStart = $<HTMLInputElement>('flyatstart')
+const presentationMode = $<HTMLInputElement>('presentation-mode')
+const showToday = $<HTMLInputElement>('show-today')
 const proBanner = $('pro-banner')
 const calFreeNote = $('cal-free-note')
 calFreeNote.addEventListener('click', () => showTab('pro'))
@@ -69,8 +71,10 @@ function setupChoices(id: string, onPick: (value: string) => void): {
     }
   }
 }
-const leadChoices = setupChoices('lead', (v) => void q.setPrefs({ leadMinutes: Number(v) }))
 const speedChoices = setupChoices('speed', (v) => void q.setPrefs({ speed: v as Prefs['speed'] }))
+const reminderList = $('reminder-list')
+const reminderMinutes = $<HTMLInputElement>('reminder-minutes')
+const reminderAdd = $<HTMLButtonElement>('reminder-add')
 
 const headsEl = $('heads')
 const colorsEl = $('colors')
@@ -93,6 +97,7 @@ const pickIcalStatus = $('pick-ical-status')
 const pickIcloudStatus = $('pick-icloud-status')
 const upcomingList = $<HTMLUListElement>('upcoming')
 const upcomingRefresh = $<HTMLButtonElement>('upcoming-refresh')
+const agendaTitle = $('agenda-title')
 // iCal-link wizard
 const icalUrl = $<HTMLInputElement>('ical-url')
 const icalName = $<HTMLInputElement>('ical-name')
@@ -130,6 +135,7 @@ let tryHead: string | null = null
 let tryColor: string | null = null
 let prefs: Prefs = {
   leadMinutes: 5,
+  reminderMinutes: [5],
   messageTemplate: '{title} in {minutes} minutes',
   soundEnabled: true,
   staySignedIn: true,
@@ -140,6 +146,8 @@ let prefs: Prefs = {
   font: 'system',
   speed: 'normal',
   flyAtStart: false,
+  presentationMode: false,
+  showTodaySchedule: false,
   soundPack: 'quack',
   flierHead: 'duck',
   flierColor: 'red',
@@ -149,7 +157,7 @@ let prefs: Prefs = {
 // ---- General -------------------------------------------------------------
 function fillPrefs(p: Prefs): void {
   prefs = p
-  leadChoices.set(String(p.leadMinutes))
+  renderReminders()
   template.value = p.messageTemplate
   displaySel.value = p.targetDisplay
   sound.checked = p.soundEnabled
@@ -157,6 +165,9 @@ function fillPrefs(p: Prefs): void {
   stay.checked = p.staySignedIn
   speedChoices.set(p.speed)
   flyAtStart.checked = p.flyAtStart
+  presentationMode.checked = p.presentationMode
+  showToday.checked = p.showTodaySchedule
+  agendaTitle.textContent = p.showTodaySchedule ? 'Today’s schedule' : 'Next up'
   tryHead = null
   tryColor = null
   renderHeads()
@@ -166,6 +177,40 @@ function fillPrefs(p: Prefs): void {
   renderSounds()
   renderPreview()
 }
+
+function renderReminders(): void {
+  reminderList.innerHTML = ''
+  for (const minutes of [...new Set(prefs.reminderMinutes)].sort((a, b) => b - a)) {
+    const row = document.createElement('span')
+    row.className = 'reminder-chip'
+    row.textContent = `${minutes} min before`
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.textContent = '×'
+    remove.setAttribute('aria-label', `Remove ${minutes}-minute reminder`)
+    remove.addEventListener('click', () => {
+      prefs.reminderMinutes = prefs.reminderMinutes.filter((value) => value !== minutes)
+      void q.setPrefs({ reminderMinutes: prefs.reminderMinutes })
+      renderReminders()
+    })
+    row.append(remove)
+    reminderList.append(row)
+  }
+}
+
+function addReminder(): void {
+  const minutes = Number(reminderMinutes.value)
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 24 * 60) return
+  if (!prefs.reminderMinutes.includes(minutes)) prefs.reminderMinutes.push(minutes)
+  prefs.reminderMinutes.sort((a, b) => b - a)
+  void q.setPrefs({ reminderMinutes: prefs.reminderMinutes })
+  reminderMinutes.value = ''
+  renderReminders()
+}
+reminderAdd.addEventListener('click', addReminder)
+reminderMinutes.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') addReminder()
+})
 template.addEventListener('change', () => void q.setPrefs({ messageTemplate: template.value }))
 displaySel.addEventListener('change', () =>
   void q.setPrefs({ targetDisplay: displaySel.value as Prefs['targetDisplay'] })
@@ -174,6 +219,15 @@ sound.addEventListener('change', () => void q.setPrefs({ soundEnabled: sound.che
 login.addEventListener('change', () => void q.setPrefs({ launchAtLogin: login.checked }))
 stay.addEventListener('change', () => void q.setPrefs({ staySignedIn: stay.checked }))
 flyAtStart.addEventListener('change', () => void q.setPrefs({ flyAtStart: flyAtStart.checked }))
+presentationMode.addEventListener('change', () =>
+  void q.setPrefs({ presentationMode: presentationMode.checked })
+)
+showToday.addEventListener('change', async () => {
+  prefs.showTodaySchedule = showToday.checked
+  agendaTitle.textContent = prefs.showTodaySchedule ? 'Today’s schedule' : 'Next up'
+  await q.setPrefs({ showTodaySchedule: prefs.showTodaySchedule })
+  await refreshCalendar()
+})
 proBanner.addEventListener('click', () => showTab('pro'))
 
 // Banner-message token tags: insert {title} / {minutes} at the cursor.
@@ -451,7 +505,9 @@ function renderUpcoming(events: UpcomingEvent[], connected: boolean): void {
     const li = document.createElement('li')
     li.className = 'up-empty'
     li.textContent = connected
-      ? 'No meetings in the next couple of hours.'
+      ? prefs.showTodaySchedule
+        ? 'No events today.'
+        : 'No meetings in the next couple of hours.'
       : 'Connect a calendar to see your meetings.'
     upcomingList.append(li)
     return
